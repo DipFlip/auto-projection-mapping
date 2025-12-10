@@ -16,6 +16,18 @@ from depth_anything_3.api import DepthAnything3
 
 app = FastAPI()
 
+# Shared state for syncing between control panel and projection view
+shared_state = {
+    "depthScale": 0.5,
+    "waveSpeed": 0,
+    "waveAmp": 0,
+    "hueShift": 0,
+    "meshRes": 128,
+    "hasCapture": False,
+    "captureId": 0,
+    "latestCapture": None
+}
+
 # Initialize model
 print("Loading Depth Anything 3 model...")
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -28,6 +40,35 @@ PROJECTOR_CAMERA_URL = "http://192.168.4.194:8080/photo.jpg"
 @app.get("/")
 async def root():
     return FileResponse("static/index.html")
+
+@app.get("/projection")
+async def projection():
+    return FileResponse("static/projection.html")
+
+@app.get("/api/state")
+async def get_state():
+    return JSONResponse({
+        "depthScale": shared_state["depthScale"],
+        "waveSpeed": shared_state["waveSpeed"],
+        "waveAmp": shared_state["waveAmp"],
+        "hueShift": shared_state["hueShift"],
+        "meshRes": shared_state["meshRes"],
+        "hasCapture": shared_state["hasCapture"],
+        "captureId": shared_state["captureId"]
+    })
+
+@app.post("/api/state")
+async def update_state(data: dict):
+    for key in ["depthScale", "waveSpeed", "waveAmp", "hueShift", "meshRes"]:
+        if key in data:
+            shared_state[key] = data[key]
+    return JSONResponse({"status": "ok"})
+
+@app.get("/api/latest-capture")
+async def latest_capture():
+    if shared_state["latestCapture"]:
+        return JSONResponse(shared_state["latestCapture"])
+    raise HTTPException(status_code=404, detail="No capture available")
 
 @app.get("/api/capture")
 async def capture():
@@ -60,12 +101,19 @@ async def capture():
         # Also return original image as base64
         orig_b64 = base64.b64encode(response.content).decode()
 
-        return JSONResponse({
+        result = {
             "original": f"data:image/jpeg;base64,{orig_b64}",
             "depth": f"data:image/png;base64,{depth_b64}",
             "width": depth.shape[1],
             "height": depth.shape[0]
-        })
+        }
+
+        # Store in shared state for projection view
+        shared_state["latestCapture"] = result
+        shared_state["hasCapture"] = True
+        shared_state["captureId"] += 1
+
+        return JSONResponse(result)
     except requests.RequestException as e:
         raise HTTPException(status_code=503, detail=f"Failed to reach projector camera: {e}")
     except Exception as e:

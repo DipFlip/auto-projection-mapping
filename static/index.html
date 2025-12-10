@@ -403,6 +403,19 @@
       }
     }
 
+    // Sync state to server for projection view
+    async function syncState() {
+      try {
+        await fetch('/api/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params)
+        });
+      } catch (e) {
+        console.log('Sync error:', e);
+      }
+    }
+
     // Event listeners
     document.getElementById('captureBtn').addEventListener('click', capture);
     document.getElementById('mode2d').addEventListener('click', () => setMode('2d'));
@@ -415,6 +428,7 @@
         params[id] = parseFloat(el.value);
         document.getElementById(id + 'Val').textContent = el.value;
         updateUniforms();
+        syncState();
 
         if (id === 'meshRes' && depthData) {
           createDepthMesh(depthData.depth, depthData.original, depthData.width, depthData.height);
