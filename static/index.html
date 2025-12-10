@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projection Mapping</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0a0a0a;
+      color: #fff;
+      overflow: hidden;
+    }
+    #app {
+      display: flex;
+      height: 100vh;
+    }
+    #controls {
+      width: 320px;
+      padding: 20px;
+      background: #151515;
+      overflow-y: auto;
+      border-right: 1px solid #333;
+    }
+    #viewport {
+      flex: 1;
+      position: relative;
+    }
+    h1 { font-size: 20px; margin-bottom: 20px; }
+    h2 { font-size: 12px; color: #666; margin: 20px 0 10px; text-transform: uppercase; letter-spacing: 1px; }
+    button {
+      width: 100%;
+      padding: 14px;
+      margin: 6px 0;
+      background: #2a5cdb;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #3a6ceb; }
+    button:disabled { background: #333; cursor: not-allowed; }
+    .preview {
+      width: 100%;
+      border-radius: 8px;
+      margin: 10px 0;
+      background: #222;
+    }
+    #status {
+      padding: 12px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      font-size: 13px;
+      margin: 10px 0;
+      border: 1px solid #333;
+    }
+    .slider-group {
+      margin: 15px 0;
+    }
+    .slider-group label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: #aaa;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: #2a5cdb;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    #loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.9);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    #loading.active { display: flex; }
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid #333;
+      border-top-color: #2a5cdb;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .mode-toggle {
+      display: flex;
+      gap: 8px;
+      margin: 10px 0;
+    }
+    .mode-toggle button {
+      flex: 1;
+      padding: 10px;
+      font-size: 12px;
+    }
+    .mode-toggle button.active {
+      background: #4a7cff;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="controls">
+      <h1>Projection Mapping</h1>
+
+      <div id="status">Ready - Click capture to start</div>
+
+      <h2>Capture</h2>
+      <button id="captureBtn">Capture from Projector</button>
+
+      <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <img id="originalPreview" class="preview" style="width: 48%; display: none;">
+        <img id="depthPreview" class="preview" style="width: 48%; display: none;">
+      </div>
+
+      <h2>View Mode</h2>
+      <div class="mode-toggle">
+        <button id="mode2d" class="active">2D Depth</button>
+        <button id="mode3d">3D Mesh</button>
+        <button id="modeProject">Project</button>
+      </div>
+
+      <h2>Displacement</h2>
+      <div class="slider-group">
+        <label>Depth Scale <span id="depthScaleVal">0.5</span></label>
+        <input type="range" id="depthScale" min="0" max="2" step="0.01" value="0.5">
+      </div>
+
+      <div class="slider-group">
+        <label>Mesh Resolution <span id="meshResVal">128</span></label>
+        <input type="range" id="meshRes" min="32" max="256" step="8" value="128">
+      </div>
+
+      <h2>Animation</h2>
+      <div class="slider-group">
+        <label>Wave Speed <span id="waveSpeedVal">0</span></label>
+        <input type="range" id="waveSpeed" min="0" max="2" step="0.1" value="0">
+      </div>
+      <div class="slider-group">
+        <label>Wave Amplitude <span id="waveAmpVal">0</span></label>
+        <input type="range" id="waveAmp" min="0" max="0.5" step="0.01" value="0">
+      </div>
+
+      <h2>Colors</h2>
+      <div class="slider-group">
+        <label>Hue Shift <span id="hueShiftVal">0</span></label>
+        <input type="range" id="hueShift" min="0" max="360" step="1" value="0">
+      </div>
+    </div>
+    <div id="viewport"></div>
+  </div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    let scene, camera, renderer, controls;
+    let depthMesh, planeMesh;
+    let depthTexture, originalTexture;
+    let currentMode = '2d';
+    let depthData = null;
+
+    const params = {
+      depthScale: 0.5,
+      meshRes: 128,
+      waveSpeed: 0,
+      waveAmp: 0,
+      hueShift: 0
+    };
+
+    function init() {
+      const viewport = document.getElementById('viewport');
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0a0a);
+
+      camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
+      camera.position.set(0, 0, 2);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      viewport.appendChild(renderer.domElement);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+      scene.add(ambientLight);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+      directionalLight.position.set(1, 1, 1);
+      scene.add(directionalLight);
+
+      window.addEventListener('resize', onResize);
+      animate();
+    }
+
+    function onResize() {
+      const viewport = document.getElementById('viewport');
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+
+      if (depthMesh && params.waveSpeed > 0) {
+        const time = Date.now() * 0.001 * params.waveSpeed;
+        depthMesh.material.uniforms.time.value = time;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function createDepthMesh(depthImg, originalImg, width, height) {
+      // Remove existing mesh
+      if (depthMesh) {
+        scene.remove(depthMesh);
+        depthMesh.geometry.dispose();
+        depthMesh.material.dispose();
+      }
+
+      const res = params.meshRes;
+      const geometry = new THREE.PlaneGeometry(2, 2 * (height / width), res, res);
+
+      // Load textures
+      const loader = new THREE.TextureLoader();
+      depthTexture = loader.load(depthImg);
+      originalTexture = loader.load(originalImg);
+
+      const material = new THREE.ShaderMaterial({
+        uniforms: {
+          depthMap: { value: depthTexture },
+          colorMap: { value: originalTexture },
+          depthScale: { value: params.depthScale },
+          time: { value: 0 },
+          waveAmp: { value: params.waveAmp },
+          hueShift: { value: params.hueShift / 360 }
+        },
+        vertexShader: `
+          uniform sampler2D depthMap;
+          uniform float depthScale;
+          uniform float time;
+          uniform float waveAmp;
+          varying vec2 vUv;
+
+          void main() {
+            vUv = uv;
+            vec4 depth = texture2D(depthMap, uv);
+            float displacement = depth.r * depthScale;
+            displacement += sin(uv.x * 10.0 + time) * sin(uv.y * 10.0 + time) * waveAmp;
+            vec3 newPosition = position + normal * displacement;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D colorMap;
+          uniform sampler2D depthMap;
+          uniform float hueShift;
+          varying vec2 vUv;
+
+          vec3 rgb2hsv(vec3 c) {
+            vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+            vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+            vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+            float d = q.x - min(q.w, q.y);
+            float e = 1.0e-10;
+            return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+          }
+
+          vec3 hsv2rgb(vec3 c) {
+            vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+            vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+            return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+          }
+
+          void main() {
+            vec4 color = texture2D(colorMap, vUv);
+            vec3 hsv = rgb2hsv(color.rgb);
+            hsv.x = fract(hsv.x + hueShift);
+            gl_FragColor = vec4(hsv2rgb(hsv), 1.0);
+          }
+        `,
+        side: THREE.DoubleSide
+      });
+
+      depthMesh = new THREE.Mesh(geometry, material);
+      scene.add(depthMesh);
+
+      camera.position.set(0, 0, 2);
+      controls.reset();
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-toggle button').forEach(b => b.classList.remove('active'));
+      document.getElementById('mode' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
+
+      if (depthMesh) {
+        if (mode === '2d') {
+          camera.position.set(0, 0, 2);
+          controls.enabled = false;
+        } else {
+          controls.enabled = true;
+        }
+      }
+    }
+
+    async function capture() {
+      const loading = document.getElementById('loading');
+      const status = document.getElementById('status');
+
+      loading.classList.add('active');
+      status.textContent = 'Capturing and processing...';
+
+      try {
+        const response = await fetch('/api/capture');
+        if (!response.ok) throw new Error('Capture failed');
+
+        const data = await response.json();
+        depthData = data;
+
+        document.getElementById('originalPreview').src = data.original;
+        document.getElementById('originalPreview').style.display = 'block';
+        document.getElementById('depthPreview').src = data.depth;
+        document.getElementById('depthPreview').style.display = 'block';
+
+        createDepthMesh(data.depth, data.original, data.width, data.height);
+
+        status.textContent = `Captured ${data.width}x${data.height} - Depth map generated`;
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+      } finally {
+        loading.classList.remove('active');
+      }
+    }
+
+    function updateUniforms() {
+      if (depthMesh) {
+        depthMesh.material.uniforms.depthScale.value = params.depthScale;
+        depthMesh.material.uniforms.waveAmp.value = params.waveAmp;
+        depthMesh.material.uniforms.hueShift.value = params.hueShift / 360;
+      }
+    }
+
+    // Event listeners
+    document.getElementById('captureBtn').addEventListener('click', capture);
+    document.getElementById('mode2d').addEventListener('click', () => setMode('2d'));
+    document.getElementById('mode3d').addEventListener('click', () => setMode('3d'));
+    document.getElementById('modeProject').addEventListener('click', () => setMode('project'));
+
+    ['depthScale', 'meshRes', 'waveSpeed', 'waveAmp', 'hueShift'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        params[id] = parseFloat(el.value);
+        document.getElementById(id + 'Val').textContent = el.value;
+        updateUniforms();
+
+        if (id === 'meshRes' && depthData) {
+          createDepthMesh(depthData.depth, depthData.original, depthData.width, depthData.height);
+        }
+      });
+    });
+
+    init();
+  </script>
+</body>
+</html>
