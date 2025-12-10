@@ -23,6 +23,13 @@ shared_state = {
     "waveAmp": 0,
     "hueShift": 0,
     "meshRes": 128,
+    "gridOpacity": 0,
+    "gridSpacing": 20,
+    "gridWidth": 1,
+    "edgeOpacity": 0,
+    "edgeThreshold": 0.1,
+    "photoEdgeOpacity": 0,
+    "photoEdgeThreshold": 0.15,
     "hasCapture": False,
     "captureId": 0,
     "latestCapture": None
@@ -53,13 +60,20 @@ async def get_state():
         "waveAmp": shared_state["waveAmp"],
         "hueShift": shared_state["hueShift"],
         "meshRes": shared_state["meshRes"],
+        "gridOpacity": shared_state["gridOpacity"],
+        "gridSpacing": shared_state["gridSpacing"],
+        "gridWidth": shared_state["gridWidth"],
+        "edgeOpacity": shared_state["edgeOpacity"],
+        "edgeThreshold": shared_state["edgeThreshold"],
+        "photoEdgeOpacity": shared_state["photoEdgeOpacity"],
+        "photoEdgeThreshold": shared_state["photoEdgeThreshold"],
         "hasCapture": shared_state["hasCapture"],
         "captureId": shared_state["captureId"]
     })
 
 @app.post("/api/state")
 async def update_state(data: dict):
-    for key in ["depthScale", "waveSpeed", "waveAmp", "hueShift", "meshRes"]:
+    for key in ["depthScale", "waveSpeed", "waveAmp", "hueShift", "meshRes", "gridOpacity", "gridSpacing", "gridWidth", "edgeOpacity", "edgeThreshold", "photoEdgeOpacity", "photoEdgeThreshold"]:
         if key in data:
             shared_state[key] = data[key]
     return JSONResponse({"status": "ok"})

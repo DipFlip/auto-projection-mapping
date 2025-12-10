@@ -45,7 +45,14 @@
       waveSpeed: 0,
       waveAmp: 0,
       hueShift: 0,
-      meshRes: 128
+      meshRes: 128,
+      gridOpacity: 0,
+      gridSpacing: 20,
+      gridWidth: 1,
+      edgeOpacity: 0,
+      edgeThreshold: 0.1,
+      photoEdgeOpacity: 0,
+      photoEdgeThreshold: 0.15
     };
 
     function init() {
@@ -84,6 +91,13 @@
         depthMesh.material.uniforms.waveAmp.value = params.waveAmp;
         depthMesh.material.uniforms.depthScale.value = params.depthScale;
         depthMesh.material.uniforms.hueShift.value = params.hueShift / 360;
+        depthMesh.material.uniforms.gridOpacity.value = params.gridOpacity;
+        depthMesh.material.uniforms.gridSpacing.value = params.gridSpacing;
+        depthMesh.material.uniforms.gridWidth.value = params.gridWidth;
+        depthMesh.material.uniforms.edgeOpacity.value = params.edgeOpacity;
+        depthMesh.material.uniforms.edgeThreshold.value = params.edgeThreshold;
+        depthMesh.material.uniforms.photoEdgeOpacity.value = params.photoEdgeOpacity;
+        depthMesh.material.uniforms.photoEdgeThreshold.value = params.photoEdgeThreshold;
         depthMesh.material.needsUpdate = true;
 
         frameCount++;
@@ -121,7 +135,15 @@
           depthScale: { value: params.depthScale },
           time: { value: 0 },
           waveAmp: { value: params.waveAmp },
-          hueShift: { value: params.hueShift / 360 }
+          hueShift: { value: params.hueShift / 360 },
+          gridOpacity: { value: params.gridOpacity },
+          gridSpacing: { value: params.gridSpacing },
+          gridWidth: { value: params.gridWidth },
+          edgeOpacity: { value: params.edgeOpacity },
+          edgeThreshold: { value: params.edgeThreshold },
+          photoEdgeOpacity: { value: params.photoEdgeOpacity },
+          photoEdgeThreshold: { value: params.photoEdgeThreshold },
+          resolution: { value: new THREE.Vector2(width, height) }
         },
         vertexShader: `
           uniform sampler2D depthMap;
@@ -143,9 +165,18 @@
         `,
         fragmentShader: `
           uniform sampler2D colorMap;
+          uniform sampler2D depthMap;
           uniform float hueShift;
           uniform float time;
           uniform float waveAmp;
+          uniform float gridOpacity;
+          uniform float gridSpacing;
+          uniform float gridWidth;
+          uniform float edgeOpacity;
+          uniform float edgeThreshold;
+          uniform float photoEdgeOpacity;
+          uniform float photoEdgeThreshold;
+          uniform vec2 resolution;
           varying vec2 vUv;
           varying float vDepth;
 
@@ -164,12 +195,93 @@
             return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
           }
 
+          // Calculate grid lines that follow depth surfaces
+          float surfaceGrid(vec2 uv, float depth, float spacing, float lineWidth) {
+            // Grid in screen space, offset by depth to align with surfaces
+            float depthOffset = depth * 50.0;
+            vec2 gridUv = uv * resolution / spacing;
+            // Offset grid based on depth - creates perspective-aligned grids
+            gridUv += vec2(depthOffset * 0.1, depthOffset * 0.1);
+
+            vec2 grid = abs(fract(gridUv - 0.5) - 0.5);
+            float lineX = smoothstep(lineWidth / spacing, 0.0, grid.x);
+            float lineY = smoothstep(lineWidth / spacing, 0.0, grid.y);
+            return max(lineX, lineY);
+          }
+
+          // Sobel edge detection on depth
+          float detectDepthEdges(vec2 uv, float threshold) {
+            vec2 texel = 1.0 / resolution;
+
+            // Sample 3x3 neighborhood
+            float tl = texture2D(depthMap, uv + vec2(-texel.x, texel.y)).r;
+            float t  = texture2D(depthMap, uv + vec2(0.0, texel.y)).r;
+            float tr = texture2D(depthMap, uv + vec2(texel.x, texel.y)).r;
+            float l  = texture2D(depthMap, uv + vec2(-texel.x, 0.0)).r;
+            float r  = texture2D(depthMap, uv + vec2(texel.x, 0.0)).r;
+            float bl = texture2D(depthMap, uv + vec2(-texel.x, -texel.y)).r;
+            float b  = texture2D(depthMap, uv + vec2(0.0, -texel.y)).r;
+            float br = texture2D(depthMap, uv + vec2(texel.x, -texel.y)).r;
+
+            // Sobel operators
+            float gx = -tl - 2.0*l - bl + tr + 2.0*r + br;
+            float gy = -tl - 2.0*t - tr + bl + 2.0*b + br;
+            float edge = sqrt(gx*gx + gy*gy);
+
+            return smoothstep(threshold * 0.5, threshold, edge);
+          }
+
+          // Sobel edge detection on color image (using luminance)
+          float detectPhotoEdges(vec2 uv, float threshold) {
+            vec2 texel = 1.0 / resolution;
+
+            // Sample 3x3 neighborhood and convert to luminance
+            float tl = dot(texture2D(colorMap, uv + vec2(-texel.x, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+            float t  = dot(texture2D(colorMap, uv + vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+            float tr = dot(texture2D(colorMap, uv + vec2(texel.x, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+            float l  = dot(texture2D(colorMap, uv + vec2(-texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
+            float r  = dot(texture2D(colorMap, uv + vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
+            float bl = dot(texture2D(colorMap, uv + vec2(-texel.x, -texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+            float b  = dot(texture2D(colorMap, uv + vec2(0.0, -texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+            float br = dot(texture2D(colorMap, uv + vec2(texel.x, -texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+
+            // Sobel operators
+            float gx = -tl - 2.0*l - bl + tr + 2.0*r + br;
+            float gy = -tl - 2.0*t - tr + bl + 2.0*b + br;
+            float edge = sqrt(gx*gx + gy*gy);
+
+            return smoothstep(threshold * 0.5, threshold, edge);
+          }
+
           void main() {
             vec4 color = texture2D(colorMap, vUv);
             float colorWave = sin(vUv.x * 20.0 + time * 2.0) * sin(vUv.y * 20.0 + time * 1.5) * waveAmp * 0.5;
             vec3 hsv = rgb2hsv(color.rgb);
             hsv.x = fract(hsv.x + hueShift + colorWave);
-            gl_FragColor = vec4(hsv2rgb(hsv), 1.0);
+            vec3 finalColor = hsv2rgb(hsv);
+
+            // Grid lines - aligned to depth surfaces
+            if (gridOpacity > 0.0) {
+              float grid = surfaceGrid(vUv, vDepth, gridSpacing, gridWidth);
+              vec3 gridColor = vec3(0.0, 1.0, 0.8); // Cyan grid
+              finalColor = mix(finalColor, gridColor, grid * gridOpacity);
+            }
+
+            // Depth edge detection overlay
+            if (edgeOpacity > 0.0) {
+              float edge = detectDepthEdges(vUv, edgeThreshold);
+              vec3 edgeColor = vec3(1.0, 0.2, 0.5); // Magenta edges
+              finalColor = mix(finalColor, edgeColor, edge * edgeOpacity);
+            }
+
+            // Photo edge detection overlay
+            if (photoEdgeOpacity > 0.0) {
+              float edge = detectPhotoEdges(vUv, photoEdgeThreshold);
+              vec3 edgeColor = vec3(1.0, 1.0, 0.0); // Yellow edges for photo
+              finalColor = mix(finalColor, edgeColor, edge * photoEdgeOpacity);
+            }
+
+            gl_FragColor = vec4(finalColor, 1.0);
           }
         `,
         side: THREE.DoubleSide
@@ -192,6 +304,13 @@
           params.waveSpeed = state.waveSpeed;
           params.waveAmp = state.waveAmp;
           params.hueShift = state.hueShift;
+          params.gridOpacity = state.gridOpacity ?? 0;
+          params.gridSpacing = state.gridSpacing ?? 20;
+          params.gridWidth = state.gridWidth ?? 1;
+          params.edgeOpacity = state.edgeOpacity ?? 0;
+          params.edgeThreshold = state.edgeThreshold ?? 0.1;
+          params.photoEdgeOpacity = state.photoEdgeOpacity ?? 0;
+          params.photoEdgeThreshold = state.photoEdgeThreshold ?? 0.15;
 
           // If we have new image data, update the mesh
           if (state.hasCapture && state.captureId !== window.lastCaptureId) {
