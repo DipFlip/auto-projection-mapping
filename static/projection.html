@@ -216,18 +216,23 @@
       setTimeout(pollForUpdates, 100);
     }
 
-    // Initial load
+    // Initial load - try server capture first, fall back to default
     async function initialLoad() {
       try {
         const response = await fetch('/api/latest-capture');
         if (response.ok) {
           const data = await response.json();
           createDepthMesh(data.depth, data.original, data.width, data.height);
-          console.log('Initial mesh loaded');
+          console.log('Initial mesh loaded from server');
+          return;
         }
       } catch (e) {
-        console.log('No initial capture available');
+        console.log('No server capture, loading default');
       }
+
+      // Load default image
+      createDepthMesh('/static/default_depth.png', '/static/default_original.jpg', 504, 336);
+      console.log('Default mesh loaded');
     }
 
     init();

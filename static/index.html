@@ -436,7 +436,27 @@
       });
     });
 
+    // Load default image on startup
+    function loadDefault() {
+      const defaultData = {
+        original: '/static/default_original.jpg',
+        depth: '/static/default_depth.png',
+        width: 504,
+        height: 336
+      };
+      depthData = defaultData;
+
+      document.getElementById('originalPreview').src = defaultData.original;
+      document.getElementById('originalPreview').style.display = 'block';
+      document.getElementById('depthPreview').src = defaultData.depth;
+      document.getElementById('depthPreview').style.display = 'block';
+
+      createDepthMesh(defaultData.depth, defaultData.original, defaultData.width, defaultData.height);
+      document.getElementById('status').textContent = 'Default image loaded - Click capture for live';
+    }
+
     init();
+    loadDefault();
   </script>
 </body>
 </html>

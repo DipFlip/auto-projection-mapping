@@ -19,11 +19,13 @@ node_modules/
 Thumbs.db
 
 # Project specific
-*.jpg
-*.png
 depth_output.png
 test_capture.jpg
 /tmp/
+
+# Keep default images
+!static/default_original.jpg
+!static/default_depth.png
 
 # Hugging Face cache
 .cache/
