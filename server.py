@@ -46,8 +46,9 @@ async def capture():
         prediction = model.inference([img_path])
         depth = prediction.depth[0]
 
-        # Normalize depth to 0-255
+        # Normalize depth to 0-255 (invert so closer = brighter)
         depth_normalized = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
+        depth_normalized = 1.0 - depth_normalized  # Invert
         depth_img = (depth_normalized * 255).astype(np.uint8)
 
         # Convert to base64
@@ -85,6 +86,7 @@ async def depth_from_url(url: str):
         depth = prediction.depth[0]
 
         depth_normalized = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
+        depth_normalized = 1.0 - depth_normalized  # Invert
         depth_img = (depth_normalized * 255).astype(np.uint8)
 
         depth_pil = Image.fromarray(depth_img)

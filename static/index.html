@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <title>Projection Mapping</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -242,13 +243,22 @@
       renderer.setSize(width, height);
     }
 
+    let frameCount = 0;
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
 
-      if (depthMesh && params.waveSpeed > 0) {
-        const time = Date.now() * 0.001 * params.waveSpeed;
+      if (depthMesh) {
+        const time = performance.now() * 0.001 * params.waveSpeed;
         depthMesh.material.uniforms.time.value = time;
+        depthMesh.material.uniforms.waveAmp.value = params.waveAmp;
+        depthMesh.material.needsUpdate = true;
+
+        // Debug log every 60 frames
+        frameCount++;
+        if (frameCount % 60 === 0 && params.waveSpeed > 0) {
+          console.log('Animation:', { time: time.toFixed(2), waveAmp: params.waveAmp, waveSpeed: params.waveSpeed });
+        }
       }
 
       renderer.render(scene, camera);
@@ -285,21 +295,25 @@
           uniform float time;
           uniform float waveAmp;
           varying vec2 vUv;
+          varying float vDepth;
 
           void main() {
             vUv = uv;
             vec4 depth = texture2D(depthMap, uv);
+            vDepth = depth.r;
             float displacement = depth.r * depthScale;
-            displacement += sin(uv.x * 10.0 + time) * sin(uv.y * 10.0 + time) * waveAmp;
-            vec3 newPosition = position + normal * displacement;
+            displacement += sin(uv.x * 10.0 + time * 3.0) * sin(uv.y * 10.0 + time * 2.0) * waveAmp;
+            vec3 newPosition = position + vec3(0.0, 0.0, displacement);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
           }
         `,
         fragmentShader: `
           uniform sampler2D colorMap;
-          uniform sampler2D depthMap;
           uniform float hueShift;
+          uniform float time;
+          uniform float waveAmp;
           varying vec2 vUv;
+          varying float vDepth;
 
           vec3 rgb2hsv(vec3 c) {
             vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
@@ -318,8 +332,12 @@
 
           void main() {
             vec4 color = texture2D(colorMap, vUv);
+
+            // Add subtle color wave effect too
+            float colorWave = sin(vUv.x * 20.0 + time * 2.0) * sin(vUv.y * 20.0 + time * 1.5) * waveAmp * 0.5;
+
             vec3 hsv = rgb2hsv(color.rgb);
-            hsv.x = fract(hsv.x + hueShift);
+            hsv.x = fract(hsv.x + hueShift + colorWave);
             gl_FragColor = vec4(hsv2rgb(hsv), 1.0);
           }
         `,
