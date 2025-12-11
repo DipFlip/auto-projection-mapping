@@ -130,7 +130,10 @@
       <div id="status">Ready - Click capture to start</div>
 
       <h2>Capture</h2>
-      <button id="captureBtn">Capture from Projector</button>
+      <div style="display: flex; gap: 8px;">
+        <button id="blankBtn">Blank Screen</button>
+        <button id="captureBtn">Capture from Projector</button>
+      </div>
 
       <div style="display: flex; gap: 10px; margin-top: 10px;">
         <img id="originalPreview" class="preview" style="width: 48%; display: none;">
@@ -141,7 +144,11 @@
       <div class="mode-toggle">
         <button id="mode2d" class="active">2D Depth</button>
         <button id="mode3d">3D Mesh</button>
-        <button id="modeProject">Project</button>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 10px;">
+        <button id="openProjector" style="flex: 1; background: #2a8c5c;">Open Projection</button>
+        <button id="openCamera" style="flex: 1; background: #8c5c2a;">Open Camera</button>
+        <button id="refreshProjector" style="flex: 1; background: #5c5c8c;">Refresh</button>
       </div>
 
       <h2>Displacement</h2>
@@ -204,6 +211,17 @@
         <label>Photo Edge Threshold <span id="photoEdgeThresholdVal">0.15</span></label>
         <input type="range" id="photoEdgeThreshold" min="0.01" max="0.5" step="0.01" value="0.15">
       </div>
+
+      <h2>Grid Calibration</h2>
+      <div id="calibStatus" style="padding: 8px; background: #1a1a1a; border-radius: 6px; margin-bottom: 10px; font-size: 12px;">
+        Not calibrated
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button id="showGridBtn" style="flex: 1; background: #6c5c8c;">Show Grid</button>
+        <button id="calibrateGridBtn" style="flex: 1; background: #5c8c6c;">Calibrate Grid</button>
+      </div>
+      <img id="calibDebug" style="width: 100%; margin-top: 10px; border-radius: 8px; display: none;">
+
     </div>
     <div id="viewport"></div>
   </div>
@@ -505,6 +523,35 @@
       }
     }
 
+    async function openOnProjector(action = 'projection') {
+      const status = document.getElementById('status');
+      const btn = document.getElementById(action === 'camera' ? 'openCamera' : 'openProjector');
+      btn.disabled = true;
+      status.textContent = action === 'camera' ? 'Opening IP Webcam on projector...' : 'Opening projection on projector...';
+
+      try {
+        // Server will determine the correct LAN IP
+        const hostIp = null;
+
+        const response = await fetch('/api/open-on-projector', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hostIp, action })
+        });
+
+        const data = await response.json();
+        if (data.status === 'ok') {
+          status.textContent = data.message;
+        } else {
+          status.textContent = 'Error: ' + data.message;
+        }
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     async function capture() {
       const loading = document.getElementById('loading');
       const status = document.getElementById('status');
@@ -566,7 +613,102 @@
     document.getElementById('captureBtn').addEventListener('click', capture);
     document.getElementById('mode2d').addEventListener('click', () => setMode('2d'));
     document.getElementById('mode3d').addEventListener('click', () => setMode('3d'));
-    document.getElementById('modeProject').addEventListener('click', () => setMode('project'));
+    document.getElementById('openProjector').addEventListener('click', () => openOnProjector('projection'));
+    document.getElementById('openCamera').addEventListener('click', () => openOnProjector('camera'));
+    document.getElementById('refreshProjector').addEventListener('click', () => openOnProjector('refresh'));
+
+    // Blank screen toggle
+    let screenBlanked = false;
+    async function toggleBlank() {
+      screenBlanked = !screenBlanked;
+      const btn = document.getElementById('blankBtn');
+      btn.textContent = screenBlanked ? 'Unblank Screen' : 'Blank Screen';
+      btn.style.background = screenBlanked ? '#c44' : '';
+
+      await fetch('/api/blank-screen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blank: screenBlanked })
+      });
+    }
+    document.getElementById('blankBtn').addEventListener('click', toggleBlank);
+
+    // Grid calibration functions
+    let showingGrid = false;
+
+    async function toggleGrid() {
+      showingGrid = !showingGrid;
+      const btn = document.getElementById('showGridBtn');
+      btn.textContent = showingGrid ? 'Hide Grid' : 'Show Grid';
+      btn.style.background = showingGrid ? '#8c5c6c' : '#6c5c8c';
+
+      await fetch('/api/show-grid-calibration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show: showingGrid, cols: 8, rows: 6, margin: 0.1 })
+      });
+    }
+
+    async function runGridCalibration() {
+      const status = document.getElementById('calibStatus');
+      const btn = document.getElementById('calibrateGridBtn');
+      const debugImg = document.getElementById('calibDebug');
+
+      btn.disabled = true;
+      status.textContent = 'Detecting grid pattern...';
+      status.style.color = '#aaa';
+
+      try {
+        const response = await fetch('/api/calibrate-grid', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cols: 8, rows: 6, margin: 0.1 })
+        });
+        const data = await response.json();
+
+        if (data.status === 'ok') {
+          status.textContent = `Calibrated! Crop: L${data.crop.left} R${data.crop.right} T${data.crop.top} B${data.crop.bottom}`;
+          status.style.color = '#5c8c5c';
+          if (data.debug_image) {
+            debugImg.src = data.debug_image;
+            debugImg.style.display = 'block';
+          }
+          showingGrid = false;
+          document.getElementById('showGridBtn').textContent = 'Show Grid';
+          document.getElementById('showGridBtn').style.background = '#6c5c8c';
+        } else {
+          status.textContent = 'Error: ' + data.message;
+          status.style.color = '#8c5c5c';
+        }
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+        status.style.color = '#8c5c5c';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('showGridBtn').addEventListener('click', toggleGrid);
+    document.getElementById('calibrateGridBtn').addEventListener('click', runGridCalibration);
+
+    async function checkCalibration() {
+      try {
+        const response = await fetch('/api/calibration');
+        const data = await response.json();
+        const status = document.getElementById('calibStatus');
+        if (data.calibrated) {
+          const crop = data.crop;
+          if (crop) {
+            status.textContent = `Calibrated: L${crop.left} R${crop.right} T${crop.top} B${crop.bottom}`;
+          } else {
+            status.textContent = 'Calibrated';
+          }
+          status.style.color = '#5c8c5c';
+        }
+      } catch (e) {}
+    }
+
+    checkCalibration();
 
     ['depthScale', 'meshRes', 'waveSpeed', 'waveAmp', 'hueShift', 'gridOpacity', 'gridSpacing', 'gridWidth', 'edgeOpacity', 'edgeThreshold', 'photoEdgeOpacity', 'photoEdgeThreshold'].forEach(id => {
       const el = document.getElementById(id);

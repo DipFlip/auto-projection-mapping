@@ -26,6 +26,11 @@
 </head>
 <body>
   <div id="status">Waiting for capture...</div>
+  <div id="blankOverlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: black; z-index: 999;"></div>
+  <div id="testMarkerOverlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 998; background: rgba(0,0,0,0.8);">
+    <div id="testMarker" style="position: absolute; border: 8px solid #00ff00; background: rgba(0,255,0,0.3); box-sizing: border-box;"></div>
+  </div>
+  <canvas id="gridCalibrationOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1001;"></canvas>
 
   <script type="importmap">
   {
@@ -52,7 +57,11 @@
       edgeOpacity: 0,
       edgeThreshold: 0.1,
       photoEdgeOpacity: 0,
-      photoEdgeThreshold: 0.15
+      photoEdgeThreshold: 0.15,
+      cropLeft: 0,
+      cropRight: 0,
+      cropTop: 0,
+      cropBottom: 0
     };
 
     function init() {
@@ -98,6 +107,23 @@
         depthMesh.material.uniforms.edgeThreshold.value = params.edgeThreshold;
         depthMesh.material.uniforms.photoEdgeOpacity.value = params.photoEdgeOpacity;
         depthMesh.material.uniforms.photoEdgeThreshold.value = params.photoEdgeThreshold;
+        // Update texture offset and repeat for cropping
+        const cropL = params.cropLeft / 100;
+        const cropR = params.cropRight / 100;
+        const cropT = params.cropTop / 100;
+        const cropB = params.cropBottom / 100;
+
+        const scaleX = 1 - cropL - cropR;
+        const scaleY = 1 - cropT - cropB;
+
+        if (depthMesh.material.uniforms.depthMap.value) {
+          depthMesh.material.uniforms.depthMap.value.offset.set(cropL, cropB);
+          depthMesh.material.uniforms.depthMap.value.repeat.set(scaleX, scaleY);
+        }
+        if (depthMesh.material.uniforms.colorMap.value) {
+          depthMesh.material.uniforms.colorMap.value.offset.set(cropL, cropB);
+          depthMesh.material.uniforms.colorMap.value.repeat.set(scaleX, scaleY);
+        }
         depthMesh.material.needsUpdate = true;
 
         frameCount++;
@@ -311,6 +337,10 @@
           params.edgeThreshold = state.edgeThreshold ?? 0.1;
           params.photoEdgeOpacity = state.photoEdgeOpacity ?? 0;
           params.photoEdgeThreshold = state.photoEdgeThreshold ?? 0.15;
+          params.cropLeft = state.cropLeft ?? 0;
+          params.cropRight = state.cropRight ?? 0;
+          params.cropTop = state.cropTop ?? 0;
+          params.cropBottom = state.cropBottom ?? 0;
 
           // If we have new image data, update the mesh
           if (state.hasCapture && state.captureId !== window.lastCaptureId) {
@@ -325,6 +355,18 @@
             }
           }
         }
+
+        // Check calibration state
+        const calibResponse = await fetch('/api/calibration');
+        if (calibResponse.ok) {
+          const calibState = await calibResponse.json();
+          // Handle blank screen
+          document.getElementById('blankOverlay').style.display = calibState.blankScreen ? 'block' : 'none';
+          // Handle test marker
+          updateTestMarker(calibState.testMarker);
+          // Handle grid calibration
+          updateGridCalibration(calibState.showGridCalibration);
+        }
       } catch (e) {
         console.log('Poll error:', e);
         document.getElementById('status').textContent = 'Connection error: ' + e.message;
@@ -333,6 +375,86 @@
 
       // Poll every 100ms
       setTimeout(pollForUpdates, 100);
+    }
+
+    function updateTestMarker(markerData) {
+      const overlay = document.getElementById('testMarkerOverlay');
+      const marker = document.getElementById('testMarker');
+
+      if (!markerData) {
+        overlay.style.display = 'none';
+        return;
+      }
+
+      overlay.style.display = 'block';
+      const size = markerData.size || 50;
+      const x = markerData.proj_x * window.innerWidth - size / 2;
+      const y = markerData.proj_y * window.innerHeight - size / 2;
+
+      marker.style.left = x + 'px';
+      marker.style.top = y + 'px';
+      marker.style.width = size + 'px';
+      marker.style.height = size + 'px';
+    }
+
+    // Draw a checkerboard pattern for grid calibration
+    function updateGridCalibration(gridConfig) {
+      const canvas = document.getElementById('gridCalibrationOverlay');
+
+      if (!gridConfig || !gridConfig.show) {
+        canvas.style.display = 'none';
+        return;
+      }
+
+      canvas.style.display = 'block';
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+
+      const ctx = canvas.getContext('2d');
+      const cols = gridConfig.cols || 8;
+      const rows = gridConfig.rows || 6;
+      const margin = gridConfig.margin || 0.1; // 10% margin on each side
+      const transparent = gridConfig.transparent || false;
+
+      // Calculate cell size with margin
+      const marginPx = Math.min(canvas.width, canvas.height) * margin;
+      const gridWidth = canvas.width - 2 * marginPx;
+      const gridHeight = canvas.height - 2 * marginPx;
+      const cellWidth = gridWidth / cols;
+      const cellHeight = gridHeight / rows;
+
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!transparent) {
+        // Fill background white for calibration
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // Draw checkerboard
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          if ((row + col) % 2 === 0) {
+            ctx.fillStyle = transparent ? 'rgba(255, 0, 0, 0.5)' : 'black';
+            ctx.fillRect(
+              marginPx + col * cellWidth,
+              marginPx + row * cellHeight,
+              cellWidth,
+              cellHeight
+            );
+          } else if (transparent) {
+            // Draw semi-transparent white for the other squares
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+            ctx.fillRect(
+              marginPx + col * cellWidth,
+              marginPx + row * cellHeight,
+              cellWidth,
+              cellHeight
+            );
+          }
+        }
+      }
     }
 
     // Initial load - try server capture first, fall back to default

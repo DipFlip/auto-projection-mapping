@@ -21,6 +21,7 @@ Thumbs.db
 # Project specific
 depth_output.png
 test_capture.jpg
+calibration.json
 /tmp/
 
 # Keep default images
