@@ -1,6 +1,6 @@
 # Projection Mapping
 
-Depth-based projection mapping using a NexiGo Nova Mini projector's camera and Depth Anything 3.
+Depth-based projection mapping using a [NexiGo Nova Mini](https://www.nexigo.com/products/nexigo-nova-mini-smart-laser-projector) projector's camera and Depth Anything 3.
 
 ## Quick Start
 
